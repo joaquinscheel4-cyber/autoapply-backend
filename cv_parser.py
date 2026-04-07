@@ -3,11 +3,27 @@ import re
 import unicodedata
 from typing import Any
 
-import fitz
-import pytesseract
-import cv2
-import numpy as np
-from PIL import Image
+try:
+    import fitz
+except ImportError:
+    fitz = None
+
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
+    np = None
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
 COMMON_SKILLS = [
