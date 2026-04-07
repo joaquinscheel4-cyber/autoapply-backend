@@ -354,60 +354,139 @@ async def aggregate_status():
 
 
 # ============================================================
-# AUTO-APPLY ENDPOINT
+# AUTO-APPLY ENDPOINT (Email via Resend)
 # ============================================================
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM_EMAIL", "AutoApply Chile <onboarding@resend.dev>")
+
+
+def detect_ats(apply_link: str) -> str:
+    url = apply_link.lower()
+    if "greenhouse.io" in url or "job-boards.greenhouse" in url:
+        return "greenhouse"
+    if "lever.co" in url:
+        return "lever"
+    if "myworkdayjobs.com" in url:
+        return "workday"
+    if "smartrecruiters.com" in url:
+        return "smartrecruiters"
+    return "generic"
+
+
+def extract_recruiter_email(job: dict) -> str | None:
+    """Return apply_email if present in job dict."""
+    return job.get("apply_email") or job.get("contact_email") or None
+
+
+async def send_application_email(
+    to_email: str,
+    candidate_name: str,
+    candidate_email: str,
+    candidate_phone: str,
+    job_title: str,
+    company: str,
+    cover_letter: str,
+    cv_base64: str,
+    cv_filename: str,
+) -> dict:
+    import base64
+    import httpx
+
+    subject = f"Postulación: {job_title} — {candidate_name}"
+
+    html_body = f"""
+<h2>Postulación para el cargo: {job_title}</h2>
+<p><strong>Candidato:</strong> {candidate_name}</p>
+<p><strong>Email:</strong> {candidate_email}</p>
+<p><strong>Teléfono:</strong> {candidate_phone or 'No indicado'}</p>
+<hr>
+<h3>Carta de presentación</h3>
+<p style="white-space: pre-line">{cover_letter}</p>
+<hr>
+<p><em>Postulación enviada automáticamente desde AutoApply Chile</em></p>
+"""
+
+    payload = {
+        "from": RESEND_FROM,
+        "to": [to_email],
+        "reply_to": candidate_email,
+        "subject": subject,
+        "html": html_body,
+    }
+
+    if cv_base64:
+        payload["attachments"] = [{
+            "filename": cv_filename,
+            "content": cv_base64,
+        }]
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+        )
+
+    if resp.status_code in (200, 201):
+        return {"success": True, "message": "Email enviado al reclutador", "method": "email"}
+    else:
+        return {"success": False, "message": f"Error Resend: {resp.text}", "method": "email"}
+
 
 @app.post("/auto-apply")
 async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """
-    Auto-apply to a job using Playwright.
-    
+    Auto-apply to a job by sending a personalized email with CV attached.
+
     Body:
-      - job: {id, title, company, apply_link, source, description}
-      - parsed_cv: {name, email, phone, skills, seniority, ...}
+      - job: {id, title, company, apply_link, apply_email, description}
+      - parsed_cv: {name, email, phone, ...}
       - cv_base64: base64-encoded PDF
+      - cover_letter: generated cover letter text
       - user_preferences: {salary_expectation, ...}
-      - existing_answers: {rut, linkedin_url, ...} (user-provided overrides)
     """
     expected = f"Bearer {AGGREGATE_SECRET}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    from aggregator.auto_apply import auto_apply, detect_ats
-    from aggregator.answer_generator import ai_fill_answers
-    from aggregator.standard_questions import get_question_by_id
-
     job = payload.get("job", {})
     parsed_cv = payload.get("parsed_cv", {})
     cv_base64 = payload.get("cv_base64", "")
-    user_preferences = payload.get("user_preferences", {})
-    existing_answers = payload.get("existing_answers", {})
     cover_letter = payload.get("cover_letter", "")
 
-    if not job.get("apply_link"):
-        raise HTTPException(status_code=400, detail="El trabajo no tiene link de postulación")
+    ats = detect_ats(job.get("apply_link", ""))
 
-    if not cv_base64:
-        raise HTTPException(status_code=400, detail="Se requiere el CV en base64")
+    candidate_name = parsed_cv.get("name") or "Candidato"
+    candidate_email = parsed_cv.get("email") or ""
+    candidate_phone = parsed_cv.get("phone") or ""
+    cv_filename = f"CV_{candidate_name.replace(' ', '_')}.pdf"
 
-    # 1. Build complete answers using AI
-    answers = ai_fill_answers(parsed_cv, user_preferences, job, existing_answers)
+    # Try direct recruiter email first
+    recruiter_email = extract_recruiter_email(job)
+    if recruiter_email and candidate_email and RESEND_API_KEY:
+        result = await send_application_email(
+            to_email=recruiter_email,
+            candidate_name=candidate_name,
+            candidate_email=candidate_email,
+            candidate_phone=candidate_phone,
+            job_title=job.get("title", ""),
+            company=job.get("company", ""),
+            cover_letter=cover_letter,
+            cv_base64=cv_base64,
+            cv_filename=cv_filename,
+        )
+        return {**result, "ats": ats}
 
-    # 2. Auto-apply with Playwright
-    ats = detect_ats(job["apply_link"])
-    result = await auto_apply(
-        apply_link=job["apply_link"],
-        answers=answers,
-        cv_base64=cv_base64,
-        cover_letter=cover_letter,
-        headless=True,
-    )
-
+    # No recruiter email — return link so user can apply manually
+    apply_link = job.get("apply_link", "")
     return {
-        "success": result.get("success", False),
-        "message": result.get("message", ""),
+        "success": False,
+        "message": "Este trabajo requiere postulación directa en el portal",
         "ats": ats,
-        "answers_used": {k: v for k, v in answers.items() if k not in ("cv_base64",)},
+        "apply_link": apply_link,
+        "action": "redirect",
     }
 
 
