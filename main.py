@@ -513,6 +513,129 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
     return {**result, "ats": ats, "apply_link": apply_link}
 
 
+@app.post("/import-job")
+async def import_job_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
+    """
+    Import a job from a URL (LinkedIn, portal empresa, etc).
+    Scrapes the page, extracts job info, saves to Supabase.
+
+    Body: { "url": "https://linkedin.com/jobs/view/..." }
+    """
+    expected = f"Bearer {AGGREGATE_SECRET}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    url = payload.get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="url requerido")
+
+    import hashlib
+    import httpx
+    import re
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+    }
+
+    try:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=20) as client:
+            resp = await client.get(url)
+            html = resp.text
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo acceder a la URL: {e}")
+
+    # Extract JSON-LD JobPosting
+    job_data = {}
+    jsonld_matches = re.findall(
+        r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>',
+        html, re.DOTALL
+    )
+    for raw in jsonld_matches:
+        try:
+            import json
+            obj = json.loads(raw)
+            if obj.get("@type") == "JobPosting":
+                job_data = obj
+                break
+        except Exception:
+            continue
+
+    # Extract from meta tags if no JSON-LD
+    def meta(name: str) -> str:
+        m = re.search(
+            rf'<meta[^>]+(?:name|property)=["\'](?:og:)?{name}["\'][^>]+content=["\']([^"\']+)["\']',
+            html, re.IGNORECASE
+        )
+        return m.group(1).strip() if m else ""
+
+    title = (
+        job_data.get("title") or
+        meta("title") or
+        re.search(r'<title>([^<|–-]+)', html, re.IGNORECASE) and
+        re.search(r'<title>([^<|–-]+)', html, re.IGNORECASE).group(1).strip() or
+        "Sin título"
+    )
+
+    company_raw = job_data.get("hiringOrganization") or {}
+    company = (
+        company_raw.get("name") if isinstance(company_raw, dict) else str(company_raw)
+    ) or meta("og:site_name") or "Empresa confidencial"
+
+    location_raw = job_data.get("jobLocation") or {}
+    if isinstance(location_raw, dict):
+        addr = location_raw.get("address") or {}
+        location = addr.get("addressLocality") or addr.get("addressRegion") or "Chile"
+    else:
+        location = "Chile"
+
+    description = job_data.get("description") or meta("description") or ""
+    # Strip HTML tags from description
+    description = re.sub(r'<[^>]+>', ' ', description).strip()
+
+    from aggregator.greenhouse import extract_skills_from_content, detect_seniority
+    from aggregator.storage import get_client
+
+    job_id = hashlib.md5(url.encode()).hexdigest()[:12]
+    external_id = f"manual_{job_id}"
+
+    from aggregator.base import NormalizedJob
+    job = NormalizedJob(
+        external_id=external_id,
+        source="manual",
+        title=title[:200],
+        company=company[:200],
+        location=location,
+        country="CL",
+        description=description[:3000],
+        apply_link=url,
+        skills=extract_skills_from_content(description),
+        seniority=detect_seniority(title, description),
+    )
+
+    # Save to Supabase
+    from aggregator.storage import upsert_jobs
+    inserted, updated = upsert_jobs([job])
+
+    return {
+        "success": True,
+        "job": {
+            "external_id": external_id,
+            "title": title,
+            "company": company,
+            "location": location,
+            "apply_link": url,
+            "skills": job.skills,
+        },
+        "inserted": inserted,
+        "updated": updated,
+    }
+
+
 @app.post("/generate-answers")
 async def generate_answers_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """

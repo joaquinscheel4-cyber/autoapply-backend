@@ -1,10 +1,9 @@
 """
 Master list of Chilean companies mapped to their ATS system.
-Extend this file to add more companies.
+All industries included — not just tech.
 """
 
-# Companies using Greenhouse Job Board API
-# API: https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true
+# ── Greenhouse ─────────────────────────────────────────────────────────────
 GREENHOUSE_COMPANIES = [
     # Fintech / Startups Chile
     {"slug": "nubank", "name": "Nubank"},
@@ -15,6 +14,7 @@ GREENHOUSE_COMPANIES = [
     {"slug": "buk-hr", "name": "Buk"},
     # Tech LATAM
     {"slug": "mercadolibre", "name": "Mercado Libre"},
+    {"slug": "rappi", "name": "Rappi"},
     {"slug": "conekta", "name": "Conekta"},
     {"slug": "kavak", "name": "Kavak"},
     {"slug": "clip", "name": "Clip"},
@@ -23,15 +23,26 @@ GREENHOUSE_COMPANIES = [
     {"slug": "endava", "name": "Endava"},
     {"slug": "wizeline", "name": "Wizeline"},
     {"slug": "ioet", "name": "ioet"},
-    # International with Chile offices
+    {"slug": "encora", "name": "Encora"},
+    {"slug": "abstracta", "name": "Abstracta"},
+    # International with Chile presence
     {"slug": "cloudflare", "name": "Cloudflare"},
     {"slug": "gitlab", "name": "GitLab"},
     {"slug": "hashicorp", "name": "HashiCorp"},
     {"slug": "twilio", "name": "Twilio"},
+    {"slug": "deel", "name": "Deel"},
+    {"slug": "remote", "name": "Remote"},
+    {"slug": "lemonadestand", "name": "Lemon"},
+    # Consultoría / Servicios
+    {"slug": "accenture", "name": "Accenture"},
+    {"slug": "thoughtworks", "name": "Thoughtworks"},
+    {"slug": "ey", "name": "EY"},
+    # Salud
+    {"slug": "biontech", "name": "BioNTech"},
+    {"slug": "life360", "name": "Life360"},
 ]
 
-# Companies using Lever Postings API
-# API: https://api.lever.co/v0/postings/{slug}?mode=json
+# ── Lever ──────────────────────────────────────────────────────────────────
 LEVER_COMPANIES = [
     # Chilean startups
     {"slug": "fintual", "name": "Fintual"},
@@ -39,31 +50,58 @@ LEVER_COMPANIES = [
     {"slug": "cheki-chile", "name": "Cheki Chile"},
     {"slug": "jooycar", "name": "JooyCar"},
     {"slug": "broota", "name": "Broota"},
+    {"slug": "houm", "name": "Houm"},
+    {"slug": "hapi", "name": "Hapi"},
+    {"slug": "chipax", "name": "Chipax"},
+    {"slug": "simple", "name": "Simple"},
+    {"slug": "osana", "name": "Osana"},
     # Tech companies with Chile presence
     {"slug": "cornershop", "name": "Cornershop"},
     {"slug": "notco", "name": "NotCo"},
     {"slug": "xcala", "name": "Xcala"},
-    {"slug": "habitat-for-humanity", "name": "Habitat Chile"},
     # LATAM tech
     {"slug": "liftoff", "name": "Liftoff"},
-    {"slug": "quixy", "name": "Quixy"},
-    {"slug": "encora", "name": "Encora"},
     {"slug": "bitso", "name": "Bitso"},
     {"slug": "konfio", "name": "Konfio"},
+    {"slug": "menta-network", "name": "Menta Network"},
+    {"slug": "aumenta", "name": "Aumenta"},
+    {"slug": "getjusto", "name": "Justo"},
+    {"slug": "adyen", "name": "Adyen"},
+    # Retail / Consumo
+    {"slug": "pedidosya", "name": "PedidosYa"},
+    {"slug": "ifood", "name": "iFood"},
 ]
 
-# Companies using SmartRecruiters
-# API: https://api.smartrecruiters.com/v1/companies/{id}/postings
+# ── SmartRecruiters ────────────────────────────────────────────────────────
 SMARTRECRUITERS_COMPANIES = [
+    # Retail grande
     {"slug": "Falabella", "name": "Falabella"},
     {"slug": "CencosudSA", "name": "Cencosud"},
+    {"slug": "Ripley", "name": "Ripley"},
+    # Banca
     {"slug": "BancoSantanderChile", "name": "Banco Santander Chile"},
+    {"slug": "Itau", "name": "Itaú Chile"},
+    # Salud
     {"slug": "EmpresasBanmedica", "name": "Banmédica"},
+    {"slug": "RedSalud", "name": "RedSalud"},
+    # Telecom
     {"slug": "Entel", "name": "Entel"},
+    {"slug": "WOM", "name": "WOM"},
+    # Logística
+    {"slug": "DHL", "name": "DHL"},
+    {"slug": "Fedex", "name": "FedEx"},
+    # Consumo masivo
+    {"slug": "Nestl", "name": "Nestlé Chile"},
+    {"slug": "UnileverChile", "name": "Unilever Chile"},
+    {"slug": "CocaCola", "name": "Coca-Cola Andina"},
+    # Construcción
+    {"slug": "Sodimac", "name": "Sodimac"},
+    # Seguros
+    {"slug": "MetLifeChile", "name": "MetLife Chile"},
+    {"slug": "MAPFREChile", "name": "MAPFRE Chile"},
 ]
 
-# Companies with public Workday JSON APIs
-# Format: https://{company}.wd1.myworkdayjobs.com/wday/cxs/{company}/{board}/jobs
+# ── Workday ────────────────────────────────────────────────────────────────
 WORKDAY_COMPANIES = [
     {
         "name": "BHP",
@@ -89,39 +127,65 @@ WORKDAY_COMPANIES = [
         "board": "External",
         "base_url": "https://enel.wd3.myworkdayjobs.com"
     },
+    {
+        "name": "LATAM Airlines",
+        "tenant": "latam",
+        "board": "External",
+        "base_url": "https://latam.wd3.myworkdayjobs.com"
+    },
+    {
+        "name": "Walmart Chile",
+        "tenant": "walmart",
+        "board": "External",
+        "base_url": "https://walmart.wd5.myworkdayjobs.com"
+    },
+    {
+        "name": "ABB Chile",
+        "tenant": "abb",
+        "board": "External",
+        "base_url": "https://abb.wd3.myworkdayjobs.com"
+    },
+    {
+        "name": "IBM Chile",
+        "tenant": "ibm",
+        "board": "External",
+        "base_url": "https://ibm.wd3.myworkdayjobs.com"
+    },
 ]
 
-# Computrabajo role slugs to search
-# These map to: https://www.computrabajo.cl/trabajo-de-{slug}
+# ── Computrabajo role slugs — todas las industrias ─────────────────────────
 COMPUTRABAJO_ROLE_SLUGS = [
-    "desarrollador",
-    "desarrollador-web",
-    "desarrollador-backend",
-    "desarrollador-frontend",
-    "analista-de-datos",
-    "data-scientist",
-    "ingeniero-de-software",
-    "ingeniero-de-sistemas",
-    "devops",
-    "scrum-master",
-    "product-manager",
-    "ux-designer",
-    "marketing-digital",
-    "contador",
-    "ingeniero-industrial",
-    "administrador-de-empresas",
-    "recursos-humanos",
-    "ventas",
-    "finanzas",
-    "mineria",
-    "ingeniero-civil",
-    "arquitecto",
-    "medico",
-    "enfermero",
-    "abogado",
-    "periodista",
-    "diseñador-grafico",
-    "logistica",
-    "supply-chain",
-    "gerente-comercial",
+    # Tech
+    "desarrollador", "desarrollador-web", "desarrollador-backend",
+    "desarrollador-frontend", "analista-de-datos", "data-scientist",
+    "ingeniero-de-software", "devops", "scrum-master", "product-manager",
+    "ux-designer", "ciberseguridad", "inteligencia-artificial",
+    # Negocios / Admin
+    "administrador-de-empresas", "gerente-comercial", "ejecutivo-comercial",
+    "analista-financiero", "contador", "auditor", "economista",
+    "recursos-humanos", "reclutador", "asistente-administrativo",
+    "secretaria", "recepcionista",
+    # Marketing / Ventas
+    "marketing-digital", "community-manager", "ejecutivo-de-ventas",
+    "vendedor", "publicidad", "relaciones-publicas", "periodista",
+    # Ingeniería / Construcción
+    "ingeniero-industrial", "ingeniero-civil", "arquitecto",
+    "ingeniero-electrico", "ingeniero-mecanico", "ingeniero-quimico",
+    "tecnico-en-electricidad", "maestro-de-obra",
+    # Salud
+    "medico", "enfermero", "kinesiologo", "psicologo", "nutricionista",
+    "tecnico-en-enfermeria", "dentista", "farmaceutico",
+    # Educación
+    "profesor", "educador", "docente",
+    # Legal
+    "abogado", "asistente-legal", "compliance",
+    # Logística / Operaciones
+    "logistica", "supply-chain", "bodeguero", "operario",
+    "conductor", "chofer", "repartidor",
+    # Minería / Energía
+    "mineria", "geólogo", "operador-planta",
+    # Gastronomía / Hotelería
+    "chef", "cocinero", "mozo", "recepcionista-hotel", "turismo",
+    # Diseño
+    "diseñador-grafico", "diseñador-ux", "diseñador-industrial",
 ]

@@ -10,6 +10,7 @@ from .smartrecruiters import SmartRecruitersConnector
 from .workday import WorkdayConnector
 from .computrabajo import ComputrabajoConnector
 from .laborum import LaborumConnector
+from .trabajando import TrabajandoConnector
 from .deduplicator import deduplicate, deduplicate_with_existing
 from .storage import upsert_jobs, expire_old_jobs, save_ingestion_log, get_existing_external_ids
 
@@ -28,8 +29,9 @@ def get_all_connectors(fast_mode: bool = False) -> list:
     if not fast_mode:
         connectors += [
             WorkdayConnector(),
-            ComputrabajoConnector(max_per_role=8, roles_to_fetch=15),
+            ComputrabajoConnector(max_per_role=8, roles_to_fetch=20),
             LaborumConnector(),
+            TrabajandoConnector(),
         ]
 
     return connectors
