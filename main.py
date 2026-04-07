@@ -438,7 +438,7 @@ async def send_application_email(
 @app.post("/auto-apply")
 async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """
-    Auto-apply to a job by sending a personalized email with CV attached.
+    Auto-apply to a job using Browserless.io (remote Chrome) + Playwright.
 
     Body:
       - job: {id, title, company, apply_link, apply_email, description}
@@ -446,6 +446,7 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
       - cv_base64: base64-encoded PDF
       - cover_letter: generated cover letter text
       - user_preferences: {salary_expectation, ...}
+      - existing_answers: {rut, linkedin_url, ...}
     """
     expected = f"Bearer {AGGREGATE_SECRET}"
     if authorization != expected:
@@ -455,39 +456,61 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
     parsed_cv = payload.get("parsed_cv", {})
     cv_base64 = payload.get("cv_base64", "")
     cover_letter = payload.get("cover_letter", "")
+    user_preferences = payload.get("user_preferences", {})
+    existing_answers = payload.get("existing_answers", {})
 
-    ats = detect_ats(job.get("apply_link", ""))
-
-    candidate_name = parsed_cv.get("name") or "Candidato"
-    candidate_email = parsed_cv.get("email") or ""
-    candidate_phone = parsed_cv.get("phone") or ""
-    cv_filename = f"CV_{candidate_name.replace(' ', '_')}.pdf"
-
-    # Try direct recruiter email first
-    recruiter_email = extract_recruiter_email(job)
-    if recruiter_email and candidate_email and RESEND_API_KEY:
-        result = await send_application_email(
-            to_email=recruiter_email,
-            candidate_name=candidate_name,
-            candidate_email=candidate_email,
-            candidate_phone=candidate_phone,
-            job_title=job.get("title", ""),
-            company=job.get("company", ""),
-            cover_letter=cover_letter,
-            cv_base64=cv_base64,
-            cv_filename=cv_filename,
-        )
-        return {**result, "ats": ats}
-
-    # No recruiter email — return link so user can apply manually
     apply_link = job.get("apply_link", "")
-    return {
-        "success": False,
-        "message": "Este trabajo requiere postulación directa en el portal",
-        "ats": ats,
-        "apply_link": apply_link,
-        "action": "redirect",
+    if not apply_link:
+        raise HTTPException(status_code=400, detail="El trabajo no tiene link de postulación")
+
+    # Build answers dict for form filling
+    name_parts = (parsed_cv.get("name") or "").split(" ", 1)
+    answers = {
+        "first_name": name_parts[0] if name_parts else "",
+        "last_name": name_parts[1] if len(name_parts) > 1 else "",
+        "full_name": parsed_cv.get("name") or "",
+        "email": parsed_cv.get("email") or "",
+        "phone": parsed_cv.get("phone") or "",
+        "location": user_preferences.get("location") or parsed_cv.get("location") or "Santiago, Chile",
+        "linkedin_url": existing_answers.get("linkedin_url") or parsed_cv.get("linkedin") or "",
+        "rut": existing_answers.get("rut") or "",
+        "salary_expectation": existing_answers.get("salary_expectation") or user_preferences.get("salary_expectation") or "",
+        "current_company": (parsed_cv.get("experience") or [{}])[0].get("company", "") if parsed_cv.get("experience") else "",
+        "website": existing_answers.get("website") or "",
+        "cover_letter": cover_letter,
     }
+
+    from aggregator.auto_apply import auto_apply, detect_ats
+    ats = detect_ats(apply_link)
+
+    # Try Browserless auto-apply
+    result = await auto_apply(
+        apply_link=apply_link,
+        answers=answers,
+        cv_base64=cv_base64,
+        cover_letter=cover_letter,
+    )
+
+    # Fallback: if no Browserless token or browser failed, try email
+    if not result.get("success") and RESEND_API_KEY:
+        recruiter_email = extract_recruiter_email(job)
+        if recruiter_email and answers["email"]:
+            cv_filename = f"CV_{answers['full_name'].replace(' ', '_')}.pdf"
+            email_result = await send_application_email(
+                to_email=recruiter_email,
+                candidate_name=answers["full_name"],
+                candidate_email=answers["email"],
+                candidate_phone=answers["phone"],
+                job_title=job.get("title", ""),
+                company=job.get("company", ""),
+                cover_letter=cover_letter,
+                cv_base64=cv_base64,
+                cv_filename=cv_filename,
+            )
+            if email_result.get("success"):
+                return {**email_result, "ats": ats}
+
+    return {**result, "ats": ats, "apply_link": apply_link}
 
 
 @app.post("/generate-answers")
