@@ -128,7 +128,17 @@ def calculate_match(profile, job):
 
 @app.get("/")
 def home():
-    return {"message": "Backend funcionando correctamente"}
+    return {
+        "status": "ok",
+        "service": "AutoApply Chile Backend",
+        "version": "2.0.0",
+        "endpoints": [
+            "POST /aggregate - Agregar trabajos",
+            "GET /aggregate/status - Estado de agregación",
+            "POST /auto-apply - Auto-postular con Playwright",
+            "POST /generate-answers - Generar respuestas con IA",
+        ]
+    }
 
 
 @app.post("/upload-cv")
