@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.local
+uploads/
+*.pdf
+*.docx
+.DS_Store
+Claude - Autoapply/
