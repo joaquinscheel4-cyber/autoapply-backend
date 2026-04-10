@@ -117,36 +117,44 @@ async def safe_upload(page, selector: str, file_path: str):
 
 
 async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str], cover_letter: str) -> dict:
-    # Greenhouse is a SPA — wait for network to settle so JS can render the form
-    await page.goto(url, wait_until="networkidle", timeout=45000)
+    # Greenhouse job detail pages live at /jobs/{id}
+    # The actual application form is at /jobs/{id}/application
+    import re
+    app_url = url
+    if re.search(r'/jobs/\d+$', url):
+        app_url = url.rstrip("/") + "/application"
+    elif re.search(r'/jobs/\d+\?', url):
+        app_url = re.sub(r'(\?.*)', '', url) + "/application"
 
-    # Wait for the application form to appear (SPA renders after JS execution)
+    await page.goto(app_url, wait_until="networkidle", timeout=45000)
+
+    # Wait for Greenhouse application form fields
     try:
         await page.wait_for_selector(
-            'input[name="first_name"], input[id*="first_name"], form#application_form, #application_form',
+            '#first_name, input[id="first_name"], #application_form, input[name="first_name"]',
             timeout=15000,
         )
     except Exception:
-        # Try scrolling in case lazy-loaded
-        await page.evaluate("window.scrollTo(0, 300)")
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(3000)
 
-    await safe_fill(page, 'input[name="first_name"], input[id*="first_name"]', answers.get("first_name", ""))
-    await safe_fill(page, 'input[name="last_name"], input[id*="last_name"]', answers.get("last_name", ""))
-    await safe_fill(page, 'input[name="email"], input[type="email"]', answers.get("email", ""))
-    await safe_fill(page, 'input[name="phone"], input[type="tel"]', answers.get("phone", ""))
-    await safe_fill(page, 'input[name="location"], input[id*="location"]', answers.get("location", "Santiago, Chile"))
+    # Greenhouse uses predictable IDs: #first_name, #last_name, #email, #phone
+    await safe_fill(page, '#first_name', answers.get("first_name", ""))
+    await safe_fill(page, '#last_name', answers.get("last_name", ""))
+    await safe_fill(page, '#email', answers.get("email", ""))
+    await safe_fill(page, '#phone', answers.get("phone", ""))
+    await safe_fill(page, '#location', answers.get("location", "Santiago, Chile"))
 
     linkedin = answers.get("linkedin_url", "")
     if linkedin:
-        await safe_fill(page, 'input[id*="linkedin"], input[placeholder*="LinkedIn"]', linkedin)
+        await safe_fill(page, '#linkedin_profile, input[id*="linkedin"]', linkedin)
 
     if cv_path:
-        await safe_upload(page, 'input[type="file"][name*="resume"], input[type="file"][id*="resume"]', cv_path)
-        await page.wait_for_timeout(1000)
+        # Greenhouse resume upload: input#resume or input[name="resume"]
+        await safe_upload(page, '#resume, input[name="resume"], input[type="file"][id*="resume"]', cv_path)
+        await page.wait_for_timeout(1500)
 
     if cover_letter:
-        await safe_fill(page, 'textarea[name*="cover"], textarea[id*="cover"]', cover_letter)
+        await safe_fill(page, '#cover_letter, textarea[id*="cover"], textarea[name*="cover"]', cover_letter)
 
     # Extra visible questions
     inputs = await page.locator("input[type='text']:visible, textarea:visible").all()
