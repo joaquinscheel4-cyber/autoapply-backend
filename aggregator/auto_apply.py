@@ -9,7 +9,9 @@ import tempfile
 from typing import Optional
 
 BROWSERLESS_TOKEN = os.environ.get("BROWSERLESS_TOKEN", "")
-BROWSERLESS_WS = f"wss://production-sfo.browserless.io?token={BROWSERLESS_TOKEN}"
+# stealth=true tells Browserless to use puppeteer-extra-plugin-stealth
+# which masks all automation signals (navigator.webdriver, plugins, etc.)
+BROWSERLESS_WS = f"wss://production-sfo.browserless.io?token={BROWSERLESS_TOKEN}&stealth=true&blockAds=true"
 
 
 def detect_ats(apply_link: str) -> str:
@@ -63,21 +65,15 @@ async def auto_apply(
             browser = await pw.chromium.connect_over_cdp(BROWSERLESS_WS)
             context = await browser.new_context(
                 accept_downloads=True,
-                locale="es-CL",
-                viewport={"width": 1280, "height": 900},
+                locale="en-US",
+                viewport={"width": 1440, "height": 900},
                 user_agent=(
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/124.0.0.0 Safari/537.36"
                 ),
-                extra_http_headers={
-                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                },
             )
             page = await context.new_page()
-            # Hide webdriver flag so sites don't detect automation
-            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page.set_default_timeout(45000)
 
             try:
