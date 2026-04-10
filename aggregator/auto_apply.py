@@ -184,9 +184,31 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
         except Exception:
             continue
 
+    # Debug: collect page state
+    current_url = page.url
+    page_title = await page.title()
+    all_buttons = await page.locator("button, input[type='submit']").all()
+    button_texts = []
+    for b in all_buttons[:10]:
+        try:
+            txt = await b.inner_text()
+            visible = await b.is_visible()
+            button_texts.append(f"{txt.strip()[:40]}(visible={visible})")
+        except Exception:
+            pass
+
+    all_inputs = await page.locator("input:visible, textarea:visible").all()
+    input_ids = []
+    for inp in all_inputs[:10]:
+        try:
+            iid = await inp.get_attribute("id") or await inp.get_attribute("name") or "?"
+            input_ids.append(iid)
+        except Exception:
+            pass
+
     submitted = False
     submit_selectors = [
-        '#submit_app',                         # Greenhouse default submit button id
+        '#submit_app',
         'button[type="submit"]',
         'input[type="submit"]',
         'button:has-text("Submit application")',
@@ -201,7 +223,6 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
             btn = page.locator(selector).first
             count = await btn.count()
             if count > 0:
-                # Scroll into view and wait for visibility
                 await btn.scroll_into_view_if_needed()
                 await page.wait_for_timeout(500)
                 if await btn.is_visible():
@@ -217,7 +238,17 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
         success = any(s in content.lower() for s in ["thank you", "gracias", "submitted", "received", "confirmación", "success", "application received"])
         return {"success": success, "message": "Formulario Greenhouse enviado" if success else "Enviado (verifica tu email)", "ats": "greenhouse"}
 
-    return {"success": False, "message": "No se encontró botón de envío en Greenhouse", "ats": "greenhouse"}
+    return {
+        "success": False,
+        "message": "No se encontró botón de envío en Greenhouse",
+        "ats": "greenhouse",
+        "debug": {
+            "final_url": current_url,
+            "page_title": page_title,
+            "buttons_found": button_texts,
+            "inputs_found": input_ids,
+        }
+    }
 
 
 async def apply_lever(page, url: str, answers: dict, cv_path: Optional[str], cover_letter: str) -> dict:
