@@ -14,7 +14,7 @@ BROWSERLESS_WS = f"wss://production-sfo.browserless.io?token={BROWSERLESS_TOKEN}
 
 def detect_ats(apply_link: str) -> str:
     url = apply_link.lower()
-    if "greenhouse.io" in url or "job-boards.greenhouse" in url:
+    if "greenhouse.io" in url:
         return "greenhouse"
     if "lever.co" in url:
         return "lever"
