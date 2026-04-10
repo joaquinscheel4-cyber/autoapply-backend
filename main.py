@@ -358,7 +358,13 @@ async def aggregate_status():
 # ============================================================
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM = os.environ.get("RESEND_FROM_EMAIL", "AutoApply Chile <onboarding@resend.dev>")
+
+# Brevo SMTP (primary email provider)
+BREVO_SMTP_HOST = os.environ.get("BREVO_SMTP_HOST", "smtp-relay.brevo.com")
+BREVO_SMTP_PORT = int(os.environ.get("BREVO_SMTP_PORT", "587"))
+BREVO_SMTP_USER = os.environ.get("BREVO_SMTP_USER", "")
+BREVO_SMTP_KEY = os.environ.get("BREVO_SMTP_KEY", "")
+BREVO_FROM_EMAIL = os.environ.get("BREVO_FROM_EMAIL", "AutoApply Chile <noreply@autoapply.cl>")
 
 
 def detect_ats(apply_link: str) -> str:
@@ -390,49 +396,68 @@ async def send_application_email(
     cv_base64: str,
     cv_filename: str,
 ) -> dict:
+    import smtplib
     import base64
-    import httpx
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    if not BREVO_SMTP_USER or not BREVO_SMTP_KEY:
+        return {"success": False, "message": "SMTP no configurado", "method": "email"}
 
     subject = f"Postulación: {job_title} — {candidate_name}"
 
     html_body = f"""
-<h2>Postulación para el cargo: {job_title}</h2>
-<p><strong>Candidato:</strong> {candidate_name}</p>
-<p><strong>Email:</strong> {candidate_email}</p>
-<p><strong>Teléfono:</strong> {candidate_phone or 'No indicado'}</p>
-<hr>
-<h3>Carta de presentación</h3>
-<p style="white-space: pre-line">{cover_letter}</p>
-<hr>
-<p><em>Postulación enviada automáticamente desde AutoApply Chile</em></p>
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;">
+  <div style="background:#2563eb;padding:24px 32px;border-radius:12px 12px 0 0;">
+    <h2 style="color:white;margin:0;font-size:18px;">Postulación: {job_title}</h2>
+    <p style="color:#bfdbfe;margin:4px 0 0;font-size:14px;">{company}</p>
+  </div>
+  <div style="background:white;padding:24px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
+    <table style="font-size:14px;color:#374151;margin-bottom:16px;">
+      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Candidato</td><td><strong>{candidate_name}</strong></td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Email</td><td>{candidate_email}</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Teléfono</td><td>{candidate_phone or 'No indicado'}</td></tr>
+    </table>
+    <hr style="border:none;border-top:1px solid #f3f4f6;margin:16px 0;">
+    <h3 style="font-size:15px;color:#111827;margin:0 0 8px;">Carta de presentación</h3>
+    <p style="font-size:14px;color:#374151;white-space:pre-line;line-height:1.6;">{cover_letter}</p>
+    <hr style="border:none;border-top:1px solid #f3f4f6;margin:16px 0;">
+    <p style="font-size:12px;color:#9ca3af;text-align:center;">Postulación enviada vía AutoApply Chile</p>
+  </div>
+</div>
 """
 
-    payload = {
-        "from": RESEND_FROM,
-        "to": [to_email],
-        "reply_to": candidate_email,
-        "subject": subject,
-        "html": html_body,
-    }
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = BREVO_FROM_EMAIL
+        msg["To"] = to_email
+        msg["Reply-To"] = candidate_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(html_body, "html"))
 
-    if cv_base64:
-        payload["attachments"] = [{
-            "filename": cv_filename,
-            "content": cv_base64,
-        }]
+        # Attach CV if provided
+        if cv_base64:
+            try:
+                cv_bytes = base64.b64decode(cv_base64)
+                part = MIMEBase("application", "pdf")
+                part.set_payload(cv_bytes)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{cv_filename}"')
+                msg.attach(part)
+            except Exception:
+                pass  # Send without CV if attachment fails
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=30,
-        )
+        with smtplib.SMTP(BREVO_SMTP_HOST, BREVO_SMTP_PORT) as server:
+            server.starttls()
+            server.login(BREVO_SMTP_USER, BREVO_SMTP_KEY)
+            server.sendmail(BREVO_FROM_EMAIL, to_email, msg.as_string())
 
-    if resp.status_code in (200, 201):
-        return {"success": True, "message": "Email enviado al reclutador", "method": "email"}
-    else:
-        return {"success": False, "message": f"Error Resend: {resp.text}", "method": "email"}
+        return {"success": True, "message": f"Email enviado a {to_email}", "method": "email"}
+
+    except Exception as e:
+        return {"success": False, "message": f"Error SMTP: {str(e)}", "method": "email"}
 
 
 @app.post("/auto-apply")
