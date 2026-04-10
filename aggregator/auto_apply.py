@@ -200,6 +200,8 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
     # Debug: collect page state
     current_url = page.url
     page_title = await page.title()
+    raw_html = await page.content()
+    html_snippet = raw_html[:800].replace("\n", " ")
     all_buttons = await page.locator("button, input[type='submit']").all()
     button_texts = []
     for b in all_buttons[:10]:
@@ -260,6 +262,7 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
             "page_title": page_title,
             "buttons_found": button_texts,
             "inputs_found": input_ids,
+            "html_snippet": html_snippet,
         }
     }
 
