@@ -117,8 +117,19 @@ async def safe_upload(page, selector: str, file_path: str):
 
 
 async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str], cover_letter: str) -> dict:
-    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    await page.wait_for_timeout(2000)
+    # Greenhouse is a SPA — wait for network to settle so JS can render the form
+    await page.goto(url, wait_until="networkidle", timeout=45000)
+
+    # Wait for the application form to appear (SPA renders after JS execution)
+    try:
+        await page.wait_for_selector(
+            'input[name="first_name"], input[id*="first_name"], form#application_form, #application_form',
+            timeout=15000,
+        )
+    except Exception:
+        # Try scrolling in case lazy-loaded
+        await page.evaluate("window.scrollTo(0, 300)")
+        await page.wait_for_timeout(2000)
 
     await safe_fill(page, 'input[name="first_name"], input[id*="first_name"]', answers.get("first_name", ""))
     await safe_fill(page, 'input[name="last_name"], input[id*="last_name"]', answers.get("last_name", ""))
@@ -166,31 +177,47 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
             continue
 
     submitted = False
-    for selector in [
-        'button[type="submit"]', 'input[type="submit"]',
-        'button:has-text("Submit")', 'button:has-text("Apply")', 'button:has-text("Send")',
-    ]:
+    submit_selectors = [
+        '#submit_app',                         # Greenhouse default submit button id
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:has-text("Submit application")',
+        'button:has-text("Submit Application")',
+        'button:has-text("Submit")',
+        'button:has-text("Apply")',
+        'button:has-text("Apply Now")',
+        'button:has-text("Send")',
+    ]
+    for selector in submit_selectors:
         try:
             btn = page.locator(selector).first
-            if await btn.count() > 0 and await btn.is_visible():
-                await btn.click()
-                await page.wait_for_timeout(3000)
-                submitted = True
-                break
+            count = await btn.count()
+            if count > 0:
+                # Scroll into view and wait for visibility
+                await btn.scroll_into_view_if_needed()
+                await page.wait_for_timeout(500)
+                if await btn.is_visible():
+                    await btn.click()
+                    await page.wait_for_timeout(4000)
+                    submitted = True
+                    break
         except Exception:
             continue
 
     if submitted:
         content = await page.content()
-        success = any(s in content.lower() for s in ["thank you", "gracias", "submitted", "received", "confirmación", "success"])
+        success = any(s in content.lower() for s in ["thank you", "gracias", "submitted", "received", "confirmación", "success", "application received"])
         return {"success": success, "message": "Formulario Greenhouse enviado" if success else "Enviado (verifica tu email)", "ats": "greenhouse"}
 
     return {"success": False, "message": "No se encontró botón de envío en Greenhouse", "ats": "greenhouse"}
 
 
 async def apply_lever(page, url: str, answers: dict, cv_path: Optional[str], cover_letter: str) -> dict:
-    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    await page.wait_for_timeout(2000)
+    await page.goto(url, wait_until="networkidle", timeout=45000)
+    try:
+        await page.wait_for_selector('input[name="name"], input[name="email"], form.application-form', timeout=12000)
+    except Exception:
+        await page.wait_for_timeout(2000)
 
     await safe_fill(page, 'input[name="name"], input[id*="name"]', answers.get("full_name", ""))
     await safe_fill(page, 'input[name="email"], input[type="email"]', answers.get("email", ""))
