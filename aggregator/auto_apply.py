@@ -65,9 +65,20 @@ async def auto_apply(
                 accept_downloads=True,
                 locale="es-CL",
                 viewport={"width": 1280, "height": 900},
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                extra_http_headers={
+                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
             )
             page = await context.new_page()
-            page.set_default_timeout(30000)
+            # Hide webdriver flag so sites don't detect automation
+            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            page.set_default_timeout(45000)
 
             try:
                 if ats == "greenhouse":
@@ -126,16 +137,18 @@ async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str]
     elif re.search(r'/jobs/\d+\?', url):
         app_url = re.sub(r'(\?.*)', '', url) + "/application"
 
-    await page.goto(app_url, wait_until="networkidle", timeout=45000)
+    await page.goto(app_url, wait_until="load", timeout=45000)
 
-    # Wait for Greenhouse application form fields
+    # Wait until JS has rendered at least one input — poll up to 20 seconds
     try:
-        await page.wait_for_selector(
-            '#first_name, input[id="first_name"], #application_form, input[name="first_name"]',
-            timeout=15000,
+        await page.wait_for_function(
+            "() => document.querySelectorAll('input, textarea, button').length > 0",
+            timeout=20000,
         )
     except Exception:
-        await page.wait_for_timeout(3000)
+        pass
+
+    await page.wait_for_timeout(2000)
 
     # Greenhouse uses predictable IDs: #first_name, #last_name, #email, #phone
     await safe_fill(page, '#first_name', answers.get("first_name", ""))
