@@ -396,15 +396,10 @@ async def send_application_email(
     cv_base64: str,
     cv_filename: str,
 ) -> dict:
-    import smtplib
-    import base64
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from email.mime.base import MIMEBase
-    from email import encoders
+    import httpx
 
-    if not BREVO_SMTP_USER or not BREVO_SMTP_KEY:
-        return {"success": False, "message": "SMTP no configurado", "method": "email"}
+    if not BREVO_SMTP_KEY:
+        return {"success": False, "message": "Brevo API key no configurada", "method": "email"}
 
     subject = f"Postulación: {job_title} — {candidate_name}"
 
@@ -429,35 +424,35 @@ async def send_application_email(
 </div>
 """
 
+    payload: dict = {
+        "sender": {"name": "AutoApply Chile", "email": BREVO_SMTP_USER or "noreply@autoapply.cl"},
+        "to": [{"email": to_email}],
+        "replyTo": {"email": candidate_email, "name": candidate_name},
+        "subject": subject,
+        "htmlContent": html_body,
+    }
+
+    if cv_base64:
+        payload["attachment"] = [{"name": cv_filename, "content": cv_base64}]
+
     try:
-        msg = MIMEMultipart()
-        msg["From"] = BREVO_FROM_EMAIL
-        msg["To"] = to_email
-        msg["Reply-To"] = candidate_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(html_body, "html"))
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": BREVO_SMTP_KEY,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
 
-        # Attach CV if provided
-        if cv_base64:
-            try:
-                cv_bytes = base64.b64decode(cv_base64)
-                part = MIMEBase("application", "pdf")
-                part.set_payload(cv_bytes)
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f'attachment; filename="{cv_filename}"')
-                msg.attach(part)
-            except Exception:
-                pass  # Send without CV if attachment fails
-
-        with smtplib.SMTP(BREVO_SMTP_HOST, BREVO_SMTP_PORT) as server:
-            server.starttls()
-            server.login(BREVO_SMTP_USER, BREVO_SMTP_KEY)
-            server.sendmail(BREVO_FROM_EMAIL, to_email, msg.as_string())
-
-        return {"success": True, "message": f"Email enviado a {to_email}", "method": "email"}
+        if resp.status_code in (200, 201):
+            return {"success": True, "message": f"Email enviado a {to_email}", "method": "email"}
+        else:
+            return {"success": False, "message": f"Error Brevo: {resp.text}", "method": "email"}
 
     except Exception as e:
-        return {"success": False, "message": f"Error SMTP: {str(e)}", "method": "email"}
+        return {"success": False, "message": f"Error enviando email: {str(e)}", "method": "email"}
 
 
 @app.post("/auto-apply")
