@@ -128,27 +128,48 @@ async def safe_upload(page, selector: str, file_path: str):
 
 
 async def apply_greenhouse(page, url: str, answers: dict, cv_path: Optional[str], cover_letter: str) -> dict:
-    # Greenhouse job detail pages live at /jobs/{id}
-    # The actual application form is at /jobs/{id}/application
-    import re
-    app_url = url
-    if re.search(r'/jobs/\d+$', url):
-        app_url = url.rstrip("/") + "/application"
-    elif re.search(r'/jobs/\d+\?', url):
-        app_url = re.sub(r'(\?.*)', '', url) + "/application"
+    # Load the job page first and click Apply (Greenhouse embeds the form or redirects)
+    await page.goto(url, wait_until="load", timeout=45000)
 
-    await page.goto(app_url, wait_until="load", timeout=45000)
-
-    # Wait until JS has rendered at least one input — poll up to 20 seconds
+    # Wait for page to render
     try:
         await page.wait_for_function(
-            "() => document.querySelectorAll('input, textarea, button').length > 0",
-            timeout=20000,
+            "() => document.querySelectorAll('button, a').length > 2",
+            timeout=15000,
         )
     except Exception:
         pass
+    await page.wait_for_timeout(1500)
 
-    await page.wait_for_timeout(2000)
+    # Click the Apply / Apply for this job button to reveal the form
+    apply_btn_selectors = [
+        'a:has-text("Apply for this Job")',
+        'a:has-text("Apply for This Job")',
+        'button:has-text("Apply for this Job")',
+        'a:has-text("Apply Now")',
+        'a[href*="/application"]',
+        '#apply_button',
+        '.apply_button',
+    ]
+    for sel in apply_btn_selectors:
+        try:
+            btn = page.locator(sel).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.click()
+                await page.wait_for_timeout(2000)
+                break
+        except Exception:
+            continue
+
+    # If navigated to /application URL, wait for that page too
+    try:
+        await page.wait_for_function(
+            "() => document.querySelectorAll('input, textarea').length > 0",
+            timeout=15000,
+        )
+    except Exception:
+        pass
+    await page.wait_for_timeout(1000)
 
     # Greenhouse uses predictable IDs: #first_name, #last_name, #email, #phone
     await safe_fill(page, '#first_name', answers.get("first_name", ""))
