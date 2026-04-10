@@ -438,15 +438,19 @@ async def send_application_email(
 @app.post("/auto-apply")
 async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """
-    Auto-apply to a job using Browserless.io (remote Chrome) + Playwright.
+    Email-first auto-apply strategy:
+    1. Check job.apply_email
+    2. Try Hunter.io to find recruiter email for the company
+    3. Fall back to common HR email pattern
+    4. If nothing found, return cover letter for manual apply
 
     Body:
       - job: {id, title, company, apply_link, apply_email, description}
       - parsed_cv: {name, email, phone, ...}
       - cv_base64: base64-encoded PDF
       - cover_letter: generated cover letter text
-      - user_preferences: {salary_expectation, ...}
-      - existing_answers: {rut, linkedin_url, ...}
+      - user_preferences: {}
+      - existing_answers: {}
     """
     expected = f"Bearer {AGGREGATE_SECRET}"
     if authorization != expected:
@@ -459,58 +463,55 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
     user_preferences = payload.get("user_preferences", {})
     existing_answers = payload.get("existing_answers", {})
 
-    apply_link = job.get("apply_link", "")
-    if not apply_link:
-        raise HTTPException(status_code=400, detail="El trabajo no tiene link de postulación")
+    apply_link = job.get("apply_link", "") or ""
+    candidate_name = parsed_cv.get("name") or ""
+    candidate_email = parsed_cv.get("email") or ""
+    candidate_phone = parsed_cv.get("phone") or ""
 
-    # Build answers dict for form filling
-    name_parts = (parsed_cv.get("name") or "").split(" ", 1)
-    answers = {
-        "first_name": name_parts[0] if name_parts else "",
-        "last_name": name_parts[1] if len(name_parts) > 1 else "",
-        "full_name": parsed_cv.get("name") or "",
-        "email": parsed_cv.get("email") or "",
-        "phone": parsed_cv.get("phone") or "",
-        "location": user_preferences.get("location") or parsed_cv.get("location") or "Santiago, Chile",
-        "linkedin_url": existing_answers.get("linkedin_url") or parsed_cv.get("linkedin") or "",
-        "rut": existing_answers.get("rut") or "",
-        "salary_expectation": existing_answers.get("salary_expectation") or user_preferences.get("salary_expectation") or "",
-        "current_company": (parsed_cv.get("experience") or [{}])[0].get("company", "") if parsed_cv.get("experience") else "",
-        "website": existing_answers.get("website") or "",
+    if not candidate_email:
+        raise HTTPException(status_code=400, detail="El perfil no tiene email")
+
+    # 1. Use apply_email from job if available
+    recruiter_email = job.get("apply_email") or job.get("contact_email") or None
+
+    # 2. Try Hunter.io + common patterns
+    if not recruiter_email and RESEND_API_KEY:
+        from aggregator.recruiter_finder import find_recruiter_email
+        recruiter_email = await find_recruiter_email(
+            company=job.get("company", ""),
+            apply_link=apply_link,
+        )
+
+    # 3. Send email if we have a destination
+    if recruiter_email and RESEND_API_KEY:
+        cv_filename = f"CV_{candidate_name.replace(' ', '_') or 'Candidato'}.pdf"
+        result = await send_application_email(
+            to_email=recruiter_email,
+            candidate_name=candidate_name,
+            candidate_email=candidate_email,
+            candidate_phone=candidate_phone,
+            job_title=job.get("title", ""),
+            company=job.get("company", ""),
+            cover_letter=cover_letter,
+            cv_base64=cv_base64,
+            cv_filename=cv_filename,
+        )
+        return {
+            **result,
+            "method": "email",
+            "recruiter_email": recruiter_email,
+            "cover_letter": cover_letter,
+            "apply_link": apply_link,
+        }
+
+    # 4. No email found — return cover letter for manual apply
+    return {
+        "success": False,
+        "method": "manual",
+        "message": "No encontramos email del reclutador. Usa el link para postular con tu carta lista.",
         "cover_letter": cover_letter,
+        "apply_link": apply_link,
     }
-
-    from aggregator.auto_apply import auto_apply, detect_ats
-    ats = detect_ats(apply_link)
-
-    # Try Browserless auto-apply
-    result = await auto_apply(
-        apply_link=apply_link,
-        answers=answers,
-        cv_base64=cv_base64,
-        cover_letter=cover_letter,
-    )
-
-    # Fallback: if no Browserless token or browser failed, try email
-    if not result.get("success") and RESEND_API_KEY:
-        recruiter_email = extract_recruiter_email(job)
-        if recruiter_email and answers["email"]:
-            cv_filename = f"CV_{answers['full_name'].replace(' ', '_')}.pdf"
-            email_result = await send_application_email(
-                to_email=recruiter_email,
-                candidate_name=answers["full_name"],
-                candidate_email=answers["email"],
-                candidate_phone=answers["phone"],
-                job_title=job.get("title", ""),
-                company=job.get("company", ""),
-                cover_letter=cover_letter,
-                cv_base64=cv_base64,
-                cv_filename=cv_filename,
-            )
-            if email_result.get("success"):
-                return {**email_result, "ats": ats}
-
-    return {**result, "ats": ats, "apply_link": apply_link}
 
 
 @app.post("/import-job")
