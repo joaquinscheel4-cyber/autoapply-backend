@@ -363,7 +363,7 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 BREVO_SMTP_HOST = os.environ.get("BREVO_SMTP_HOST", "smtp-relay.brevo.com")
 BREVO_SMTP_PORT = int(os.environ.get("BREVO_SMTP_PORT", "587"))
 BREVO_SMTP_USER = os.environ.get("BREVO_SMTP_USER", "")
-BREVO_SMTP_KEY = os.environ.get("BREVO_SMTP_KEY", "")
+BREVO_SMTP_KEY = os.environ.get("BREVO_SMTP_KEY", "").strip()
 BREVO_FROM_EMAIL = os.environ.get("BREVO_FROM_EMAIL", "AutoApply Chile <noreply@autoapply.cl>")
 
 
