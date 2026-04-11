@@ -654,6 +654,104 @@ async def import_job_endpoint(payload: dict, authorization: Optional[str] = Head
     }
 
 
+@app.post("/import-excel")
+async def import_excel_endpoint(
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Import jobs from an Excel (.xlsx) or CSV file.
+    Expected columns: empresa, cargo, ciudad, link, descripcion, modalidad (optional)
+    """
+    expected = f"Bearer {AGGREGATE_SECRET}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    import hashlib
+    import io
+    import csv
+
+    content = await file.read()
+    filename = file.filename or ""
+    jobs_to_insert = []
+
+    try:
+        if filename.endswith(".csv"):
+            text = content.decode("utf-8-sig", errors="replace")
+            reader = csv.DictReader(io.StringIO(text))
+            rows = list(reader)
+        else:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content))
+            ws = wb.active
+            headers = [str(cell.value or "").strip().lower() for cell in ws[1]]
+            rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                rows.append({headers[i]: (str(v).strip() if v is not None else "") for i, v in enumerate(row)})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error leyendo archivo: {e}")
+
+    # Column name aliases
+    def get_col(row: dict, *names: str) -> str:
+        for n in names:
+            v = row.get(n, "").strip()
+            if v and v.lower() != "none":
+                return v
+        return ""
+
+    from aggregator.greenhouse import extract_skills_from_content, detect_seniority
+    from aggregator.base import NormalizedJob
+    from aggregator.storage import upsert_jobs
+
+    for row in rows:
+        company = get_col(row, "empresa", "company", "compañia", "compania")
+        title = get_col(row, "cargo", "title", "puesto", "posicion", "posición")
+        if not company or not title:
+            continue
+
+        city = get_col(row, "ciudad", "location", "ciudad/region", "región", "region") or "Chile"
+        link = get_col(row, "link", "url", "apply_link", "link_postulacion")
+        description = get_col(row, "descripcion", "descripción", "description", "detalle")
+        modality_raw = get_col(row, "modalidad", "modality", "modalidad de trabajo").lower()
+
+        modality = None
+        if "remoto" in modality_raw or "remote" in modality_raw:
+            modality = "remote"
+        elif "híbrido" in modality_raw or "hibrido" in modality_raw or "hybrid" in modality_raw:
+            modality = "hybrid"
+        elif "presencial" in modality_raw or "onsite" in modality_raw:
+            modality = "presencial"
+
+        job_id = hashlib.md5(f"{company}{title}{link}".encode()).hexdigest()[:12]
+
+        job = NormalizedJob(
+            external_id=f"excel_{job_id}",
+            source="excel",
+            title=title[:200],
+            company=company[:200],
+            location=city,
+            country="CL",
+            description=description[:3000],
+            apply_link=link or None,
+            modality=modality,
+            skills=extract_skills_from_content(description),
+            seniority=detect_seniority(title, description),
+        )
+        jobs_to_insert.append(job)
+
+    if not jobs_to_insert:
+        raise HTTPException(status_code=400, detail="No se encontraron filas válidas. Verifica las columnas: empresa, cargo, ciudad, link, descripcion")
+
+    inserted, updated = upsert_jobs(jobs_to_insert)
+    return {
+        "success": True,
+        "total_rows": len(rows),
+        "inserted": inserted,
+        "updated": updated,
+        "jobs_processed": len(jobs_to_insert),
+    }
+
+
 @app.post("/generate-answers")
 async def generate_answers_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """
