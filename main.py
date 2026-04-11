@@ -621,6 +621,8 @@ async def import_job_endpoint(payload: dict, authorization: Optional[str] = Head
     job_id = hashlib.md5(url.encode()).hexdigest()[:12]
     external_id = f"manual_{job_id}"
 
+    apply_email = payload.get("apply_email", "").strip() or None
+
     from aggregator.base import NormalizedJob
     job = NormalizedJob(
         external_id=external_id,
@@ -631,6 +633,7 @@ async def import_job_endpoint(payload: dict, authorization: Optional[str] = Head
         country="CL",
         description=description[:3000],
         apply_link=url,
+        apply_email=apply_email,
         skills=extract_skills_from_content(description),
         seniority=detect_seniority(title, description),
     )
