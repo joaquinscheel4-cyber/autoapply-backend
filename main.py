@@ -712,6 +712,7 @@ async def import_excel_endpoint(
         city = get_col(row, "ciudad", "location", "ciudad/region", "región", "region") or "Chile"
         link = get_col(row, "link", "url", "apply_link", "link_postulacion")
         description = get_col(row, "descripcion", "descripción", "description", "detalle")
+        apply_email = get_col(row, "email_reclutador", "email", "recruiter_email", "apply_email", "contacto")
         modality_raw = get_col(row, "modalidad", "modality", "modalidad de trabajo").lower()
 
         modality = None
@@ -733,6 +734,7 @@ async def import_excel_endpoint(
             country="CL",
             description=description[:3000],
             apply_link=link or None,
+            apply_email=apply_email or None,
             modality=modality,
             skills=extract_skills_from_content(description),
             seniority=detect_seniority(title, description),
