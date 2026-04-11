@@ -128,16 +128,13 @@ def calculate_match(profile, job):
 
 @app.get("/")
 def home():
+    key = BREVO_SMTP_KEY
     return {
         "status": "ok",
         "service": "AutoApply Chile Backend",
         "version": "2.0.0",
-        "endpoints": [
-            "POST /aggregate - Agregar trabajos",
-            "GET /aggregate/status - Estado de agregación",
-            "POST /auto-apply - Auto-postular con Playwright",
-            "POST /generate-answers - Generar respuestas con IA",
-        ]
+        "brevo_key_prefix": key[:12] if key else "NOT SET",
+        "brevo_user": BREVO_SMTP_USER,
     }
 
 
