@@ -422,22 +422,22 @@ async def send_application_email(
 """
 
     payload: dict = {
-        "sender": {"name": "AutoApply Chile", "email": BREVO_SMTP_USER or "noreply@autoapply.cl"},
-        "to": [{"email": to_email}],
-        "replyTo": {"email": candidate_email, "name": candidate_name},
+        "from": "Applyai <onboarding@resend.dev>",
+        "to": [to_email],
+        "reply_to": candidate_email,
         "subject": subject,
-        "htmlContent": html_body,
+        "html": html_body,
     }
 
     if cv_base64:
-        payload["attachment"] = [{"name": cv_filename, "content": cv_base64}]
+        payload["attachments"] = [{"filename": cv_filename, "content": cv_base64}]
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                "https://api.brevo.com/v3/smtp/email",
+                "https://api.resend.com/emails",
                 headers={
-                    "api-key": BREVO_SMTP_KEY,
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -446,7 +446,7 @@ async def send_application_email(
         if resp.status_code in (200, 201):
             return {"success": True, "message": f"Email enviado a {to_email}", "method": "email"}
         else:
-            return {"success": False, "message": f"Error Brevo: {resp.text}", "method": "email"}
+            return {"success": False, "message": f"Error Resend: {resp.text}", "method": "email"}
 
     except Exception as e:
         return {"success": False, "message": f"Error enviando email: {str(e)}", "method": "email"}
