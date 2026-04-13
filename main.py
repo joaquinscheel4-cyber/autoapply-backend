@@ -424,6 +424,7 @@ async def send_application_email(
     payload: dict = {
         "from": "AutoApply Chile <noreply@autoapplychile.com>",
         "to": [to_email],
+        "cc": [candidate_email],
         "reply_to": candidate_email,
         "subject": subject,
         "html": html_body,
