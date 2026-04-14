@@ -400,26 +400,11 @@ async def send_application_email(
 
     subject = f"Postulación: {job_title} — {candidate_name}"
 
-    html_body = f"""
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;">
-  <div style="background:#2563eb;padding:24px 32px;border-radius:12px 12px 0 0;">
-    <h2 style="color:white;margin:0;font-size:18px;">Postulación: {job_title}</h2>
-    <p style="color:#bfdbfe;margin:4px 0 0;font-size:14px;">{company}</p>
-  </div>
-  <div style="background:white;padding:24px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
-    <table style="font-size:14px;color:#374151;margin-bottom:16px;">
-      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Candidato</td><td><strong>{candidate_name}</strong></td></tr>
-      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Email</td><td>{candidate_email}</td></tr>
-      <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Teléfono</td><td>{candidate_phone or 'No indicado'}</td></tr>
-    </table>
-    <hr style="border:none;border-top:1px solid #f3f4f6;margin:16px 0;">
-    <h3 style="font-size:15px;color:#111827;margin:0 0 8px;">Carta de presentación</h3>
-    <p style="font-size:14px;color:#374151;white-space:pre-line;line-height:1.6;">{cover_letter}</p>
-    <hr style="border:none;border-top:1px solid #f3f4f6;margin:16px 0;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;">Postulación enviada vía AutoApply Chile</p>
-  </div>
-</div>
-"""
+    # Plain email format — looks like a human wrote it
+    cover_letter_html = cover_letter.replace("\n", "<br>")
+    html_body = f"""<div style="font-family:Arial,sans-serif;font-size:14px;color:#000000;line-height:1.6;max-width:600px;">
+{cover_letter_html}
+</div>"""
 
     # Show candidate's name as sender — reply-to goes directly to candidate's email
     from_name = candidate_name or "Candidato"
