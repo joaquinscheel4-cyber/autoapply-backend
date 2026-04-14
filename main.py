@@ -421,8 +421,10 @@ async def send_application_email(
 </div>
 """
 
+    # Show candidate's name as sender — reply-to goes directly to candidate's email
+    from_name = candidate_name or "Candidato"
     payload: dict = {
-        "from": "AutoApply Chile <noreply@autoapplychile.com>",
+        "from": f"{from_name} <noreply@autoapplychile.com>",
         "to": [to_email],
         "cc": [candidate_email],
         "reply_to": candidate_email,
