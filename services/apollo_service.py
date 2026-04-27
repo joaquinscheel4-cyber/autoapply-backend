@@ -28,7 +28,7 @@ HR_TITLES = [
 ]
 
 # Apollo returns these statuses when the email is real and deliverable
-VALID_EMAIL_STATUSES = {"verified", "likely to engage", ""}
+VALID_EMAIL_STATUSES = {"verified", "likely to engage", "email_not_found", "unavailable", ""}
 
 
 async def search_recruiter(company_name: str) -> dict | None:

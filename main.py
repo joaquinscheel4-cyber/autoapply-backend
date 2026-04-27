@@ -814,6 +814,45 @@ async def import_excel_endpoint(
     }
 
 
+@app.post("/api/enrich-recruiter/debug")
+async def enrich_recruiter_debug(payload: dict, authorization: Optional[str] = Header(None)):
+    """Debug: returns raw Apollo response for a company."""
+    expected = f"Bearer {AGGREGATE_SECRET}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company_name = (payload.get("company_name") or "").strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name requerido")
+
+    import httpx
+    from services.apollo_service import APOLLO_API_KEY, APOLLO_URL, HR_TITLES
+
+    if not APOLLO_API_KEY:
+        return {"error": "APOLLO_API_KEY not set"}
+
+    payload_apollo = {
+        "api_key": APOLLO_API_KEY,
+        "q_organization_name": company_name,
+        "person_titles": HR_TITLES,
+        "person_locations": ["Chile"],
+        "page": 1,
+        "per_page": 5,
+    }
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            APOLLO_URL,
+            headers={"Content-Type": "application/json"},
+            json=payload_apollo,
+        )
+
+    return {
+        "status_code": resp.status_code,
+        "raw": resp.json(),
+    }
+
+
 @app.post("/api/enrich-recruiter")
 async def enrich_recruiter_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
     """
