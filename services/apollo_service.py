@@ -9,7 +9,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 APOLLO_API_KEY = os.environ.get("APOLLO_API_KEY", "")
-APOLLO_URL = "https://api.apollo.io/api/v1/mixed_people/search"
+APOLLO_URL = "https://api.apollo.io/api/v1/people/search"
 
 HR_TITLES = [
     "recruiter",

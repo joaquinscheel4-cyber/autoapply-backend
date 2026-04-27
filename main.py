@@ -875,7 +875,8 @@ async def enrich_recruiter_debug(payload: dict, authorization: Optional[str] = H
         raise HTTPException(status_code=400, detail="company_name requerido")
 
     import httpx
-    from services.apollo_service import APOLLO_API_KEY, APOLLO_URL, HR_TITLES
+    from services.apollo_service import APOLLO_API_KEY, HR_TITLES
+    APOLLO_URL = "https://api.apollo.io/api/v1/people/search"
 
     if not APOLLO_API_KEY:
         return {"error": "APOLLO_API_KEY not set"}
