@@ -323,16 +323,33 @@ async def aggregate_jobs(
     sync = payload.get("sync", False)
 
     if sync:
-        # Wait for result (use for testing/cron)
         result = await run_aggregation(roles=roles or None, fast_mode=fast_mode)
+        # Enrich new jobs in background after sync aggregation
+        background_tasks.add_task(_enrich_after_aggregate)
         return {"status": "completed", **result}
 
-    # Run in background
-    background_tasks.add_task(
-        asyncio.run,
-        run_aggregation(roles=roles or None, fast_mode=fast_mode)
-    )
+    # Run aggregation + enrichment both in background
+    background_tasks.add_task(_run_aggregate_then_enrich, roles or None, fast_mode)
     return {"status": "started", "message": "Aggregation running in background"}
+
+
+async def _enrich_single_background(job_id: str, company: str):
+    """Background: enrich a single job with Apollo."""
+    from services.enrichment import enrich_single_job
+    await enrich_single_job(job_id, company)
+
+
+async def _enrich_after_aggregate():
+    """Background: enrich all jobs without recruiter data after aggregation."""
+    from services.enrichment import enrich_jobs_without_recruiter
+    await enrich_jobs_without_recruiter(limit=30)
+
+
+async def _run_aggregate_then_enrich(roles, fast_mode):
+    """Background: run aggregation, then enrich new jobs."""
+    await run_aggregation(roles=roles, fast_mode=fast_mode)
+    from services.enrichment import enrich_jobs_without_recruiter
+    await enrich_jobs_without_recruiter(limit=30)
 
 
 @app.get("/aggregate/status")
@@ -488,24 +505,33 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
     job_id = job.get("id") or None
     company_name = job.get("company", "")
 
-    # 1. Use apply_email from job if available
-    recruiter_email = job.get("apply_email") or job.get("contact_email") or None
-    recruiter_name = None
-    email_source = "job_data"
+    # 1. Use recruiter_email already stored in job (enriched by Apollo at import time)
+    recruiter_email = job.get("recruiter_email") or None
+    recruiter_name = job.get("recruiter_name") or None
+    recruiter_title = job.get("recruiter_title") or None
+    email_source = job.get("email_source") or None
 
-    # 2. Try Apollo.io — search for HR/Recruiting person at the company
+    if recruiter_email:
+        logging.info(f"Using stored recruiter: {recruiter_email} (source: {email_source})")
+
+    # 2. Fallback to apply_email in job
+    if not recruiter_email:
+        recruiter_email = job.get("apply_email") or job.get("contact_email") or None
+        if recruiter_email:
+            email_source = "job_data"
+
+    # 3. Live Apollo search (job was imported without enrichment)
     if not recruiter_email:
         from services.apollo_service import search_recruiter
         apollo_result = await search_recruiter(company_name)
         if apollo_result:
             recruiter_email = apollo_result["email"]
             recruiter_name = apollo_result.get("name")
+            recruiter_title = apollo_result.get("title")
             email_source = "apollo"
-            logging.info(f"Apollo found recruiter for '{company_name}': {recruiter_email}")
-        else:
-            logging.info(f"Apollo: no recruiter found for '{company_name}'")
+            logging.info(f"Apollo live search found: {recruiter_email}")
 
-    # 3. Try Hunter.io + common patterns as fallback
+    # 4. Hunter.io + pattern fallback
     if not recruiter_email:
         from aggregator.recruiter_finder import find_recruiter_email
         recruiter_email = await find_recruiter_email(
@@ -514,7 +540,7 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
         )
         if recruiter_email:
             email_source = "hunter"
-            logging.info(f"Hunter found email for '{company_name}': {recruiter_email}")
+            logging.info(f"Hunter found: {recruiter_email}")
 
     # 4. Send email if we have a destination
     if recruiter_email and RESEND_API_KEY:
@@ -556,6 +582,7 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
             "email_source": email_source,
             "recruiter_email": recruiter_email,
             "recruiter_name": recruiter_name,
+            "recruiter_title": recruiter_title,
             "cover_letter": cover_letter,
             "apply_link": apply_link,
         }
@@ -589,7 +616,11 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
 
 
 @app.post("/import-job")
-async def import_job_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
+async def import_job_endpoint(
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(None),
+):
     """
     Import a job from a URL (LinkedIn, portal empresa, etc).
     Scrapes the page, extracts job info, saves to Supabase.
@@ -696,8 +727,15 @@ async def import_job_endpoint(payload: dict, authorization: Optional[str] = Head
     )
 
     # Save to Supabase
-    from aggregator.storage import upsert_jobs
+    from aggregator.storage import upsert_jobs, get_jobs_by_external_ids
     inserted, updated = upsert_jobs([job])
+
+    # Enrich with Apollo in background (only if newly inserted)
+    if inserted > 0:
+        saved = get_jobs_by_external_ids([external_id])
+        if saved:
+            job_record = saved[0]
+            background_tasks.add_task(_enrich_single_background, job_record["id"], company)
 
     return {
         "success": True,
@@ -717,6 +755,7 @@ async def import_job_endpoint(payload: dict, authorization: Optional[str] = Head
 @app.post("/import-excel")
 async def import_excel_endpoint(
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
     authorization: Optional[str] = Header(None),
 ):
     """
@@ -761,7 +800,7 @@ async def import_excel_endpoint(
 
     from aggregator.greenhouse import extract_skills_from_content, detect_seniority
     from aggregator.base import NormalizedJob
-    from aggregator.storage import upsert_jobs
+    from aggregator.storage import upsert_jobs, get_jobs_by_external_ids
 
     for row in rows:
         company = get_col(row, "empresa", "company", "compañia", "compania")
@@ -805,6 +844,16 @@ async def import_excel_endpoint(
         raise HTTPException(status_code=400, detail="No se encontraron filas válidas. Verifica las columnas: empresa, cargo, ciudad, link, descripcion")
 
     inserted, updated = upsert_jobs(jobs_to_insert)
+
+    # Enrich newly inserted jobs with Apollo in background
+    if inserted > 0 and background_tasks:
+        new_external_ids = [j.external_id for j in jobs_to_insert]
+        saved = get_jobs_by_external_ids(new_external_ids)
+        to_enrich = [j for j in saved if not j.get("recruiter_email") and not j.get("email_source")]
+        if to_enrich:
+            from services.enrichment import enrich_jobs_batch
+            background_tasks.add_task(enrich_jobs_batch, to_enrich)
+
     return {
         "success": True,
         "total_rows": len(rows),

@@ -28,6 +28,11 @@ class NormalizedJob:
     currency: str = "CLP"
     posted_at: Optional[str] = None
     fetched_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    # Recruiter contact enriched via Apollo
+    recruiter_email: Optional[str] = None
+    recruiter_name: Optional[str] = None
+    recruiter_title: Optional[str] = None
+    email_source: Optional[str] = None  # 'apollo' | 'hunter' | 'job_data' | 'not_found'
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +52,10 @@ class NormalizedJob:
             "salary_max": self.salary_max,
             "posted_at": self.posted_at,
             "fetched_at": self.fetched_at,
+            "recruiter_email": self.recruiter_email,
+            "recruiter_name": self.recruiter_name,
+            "recruiter_title": self.recruiter_title,
+            "email_source": self.email_source,
         }
 
 

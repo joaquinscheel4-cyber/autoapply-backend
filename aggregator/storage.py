@@ -48,7 +48,7 @@ def upsert_jobs(jobs: list[NormalizedJob]) -> tuple[int, int]:
         except Exception as e:
             print(f"[STORAGE] Insert error batch {i}: {e}")
 
-    # Update existing jobs (refresh description, skills, etc.)
+    # Update existing jobs — never overwrite recruiter data already enriched
     for job in update_jobs:
         try:
             supabase.table("jobs").update({
@@ -65,6 +65,20 @@ def upsert_jobs(jobs: list[NormalizedJob]) -> tuple[int, int]:
             print(f"[STORAGE] Update error {job.external_id}: {e}")
 
     return inserted, updated
+
+
+def get_jobs_by_external_ids(external_ids: list[str]) -> list[dict]:
+    """Return id + company for a list of external_ids (used to queue enrichment)."""
+    if not external_ids:
+        return []
+    supabase = get_client()
+    result = (
+        supabase.table("jobs")
+        .select("id, company, external_id, recruiter_email, email_source")
+        .in_("external_id", external_ids)
+        .execute()
+    )
+    return result.data or []
 
 
 def expire_old_jobs(days: int = 30) -> int:
