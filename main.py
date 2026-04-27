@@ -129,6 +129,9 @@ def calculate_match(profile, job):
     }
 
 
+APOLLO_API_KEY = os.environ.get("APOLLO_API_KEY", "")
+
+
 @app.get("/")
 def home():
     key = BREVO_SMTP_KEY
@@ -138,6 +141,8 @@ def home():
         "version": "2.0.0",
         "brevo_key_prefix": key[:12] if key else "NOT SET",
         "brevo_user": BREVO_SMTP_USER,
+        "apollo_key_set": bool(APOLLO_API_KEY),
+        "apollo_key_prefix": APOLLO_API_KEY[:8] if APOLLO_API_KEY else "NOT SET",
     }
 
 
