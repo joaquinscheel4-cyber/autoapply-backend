@@ -881,7 +881,6 @@ async def enrich_recruiter_debug(payload: dict, authorization: Optional[str] = H
         return {"error": "APOLLO_API_KEY not set"}
 
     payload_apollo = {
-        "api_key": APOLLO_API_KEY,
         "q_organization_name": company_name,
         "person_titles": HR_TITLES,
         "person_locations": ["Chile"],
@@ -892,7 +891,10 @@ async def enrich_recruiter_debug(payload: dict, authorization: Optional[str] = H
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             APOLLO_URL,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Api-Key": APOLLO_API_KEY,
+            },
             json=payload_apollo,
         )
 

@@ -46,7 +46,6 @@ async def search_recruiter(company_name: str) -> dict | None:
         return None
 
     payload = {
-        "api_key": APOLLO_API_KEY,
         "q_organization_name": company_name.strip(),
         "person_titles": HR_TITLES,
         "person_locations": ["Chile"],
@@ -59,7 +58,10 @@ async def search_recruiter(company_name: str) -> dict | None:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 APOLLO_URL,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Api-Key": APOLLO_API_KEY,
+                },
                 json=payload,
             )
 
