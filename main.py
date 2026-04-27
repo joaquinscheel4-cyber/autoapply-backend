@@ -1,11 +1,14 @@
 from pathlib import Path
 import unicodedata
 import asyncio
+import logging
 import os
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
+
+logging.basicConfig(level=logging.INFO)
 
 from cv_parser import read_cv_text, parse_cv_text
 from jobs_data import MOCK_JOBS
@@ -476,18 +479,39 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
     if not candidate_email:
         raise HTTPException(status_code=400, detail="El perfil no tiene email")
 
+    user_id = payload.get("user_id") or None
+    job_id = job.get("id") or None
+    company_name = job.get("company", "")
+
     # 1. Use apply_email from job if available
     recruiter_email = job.get("apply_email") or job.get("contact_email") or None
+    recruiter_name = None
+    email_source = "job_data"
 
-    # 2. Try Hunter.io + common patterns
-    if not recruiter_email and RESEND_API_KEY:
+    # 2. Try Apollo.io — search for HR/Recruiting person at the company
+    if not recruiter_email:
+        from services.apollo_service import search_recruiter
+        apollo_result = await search_recruiter(company_name)
+        if apollo_result:
+            recruiter_email = apollo_result["email"]
+            recruiter_name = apollo_result.get("name")
+            email_source = "apollo"
+            logging.info(f"Apollo found recruiter for '{company_name}': {recruiter_email}")
+        else:
+            logging.info(f"Apollo: no recruiter found for '{company_name}'")
+
+    # 3. Try Hunter.io + common patterns as fallback
+    if not recruiter_email:
         from aggregator.recruiter_finder import find_recruiter_email
         recruiter_email = await find_recruiter_email(
-            company=job.get("company", ""),
+            company=company_name,
             apply_link=apply_link,
         )
+        if recruiter_email:
+            email_source = "hunter"
+            logging.info(f"Hunter found email for '{company_name}': {recruiter_email}")
 
-    # 3. Send email if we have a destination
+    # 4. Send email if we have a destination
     if recruiter_email and RESEND_API_KEY:
         cv_filename = f"CV_{candidate_name.replace(' ', '_') or 'Candidato'}.pdf"
         result = await send_application_email(
@@ -496,20 +520,60 @@ async def auto_apply_endpoint(payload: dict, authorization: Optional[str] = Head
             candidate_email=candidate_email,
             candidate_phone=candidate_phone,
             job_title=job.get("title", ""),
-            company=job.get("company", ""),
+            company=company_name,
             cover_letter=cover_letter,
             cv_base64=cv_base64,
             cv_filename=cv_filename,
         )
+
+        # Save to Supabase if user_id and job_id are provided
+        if user_id and job_id and result.get("success"):
+            try:
+                from aggregator.storage import get_client
+                from datetime import datetime, timezone
+                supabase = get_client()
+                supabase.table("applications").upsert({
+                    "user_id": user_id,
+                    "job_id": job_id,
+                    "recruiter_email": recruiter_email,
+                    "status": "sent",
+                    "sent_at": datetime.now(timezone.utc).isoformat(),
+                    "triggered_by": "manual",
+                    "cover_letter_text": cover_letter,
+                }, on_conflict="user_id,job_id").execute()
+                logging.info(f"Saved application to Supabase: user={user_id} job={job_id}")
+            except Exception as e:
+                logging.error(f"Failed to save application to Supabase: {e}")
+
         return {
             **result,
             "method": "email",
+            "email_source": email_source,
             "recruiter_email": recruiter_email,
+            "recruiter_name": recruiter_name,
             "cover_letter": cover_letter,
             "apply_link": apply_link,
         }
 
-    # 4. No email found — return cover letter for manual apply
+    # 5. No email found — save as sin_contacto and return cover letter for manual apply
+    if user_id and job_id:
+        try:
+            from aggregator.storage import get_client
+            from datetime import datetime, timezone
+            supabase = get_client()
+            supabase.table("applications").upsert({
+                "user_id": user_id,
+                "job_id": job_id,
+                "recruiter_email": None,
+                "status": "sin_contacto",
+                "sent_at": None,
+                "triggered_by": "manual",
+                "cover_letter_text": cover_letter,
+            }, on_conflict="user_id,job_id").execute()
+            logging.info(f"Saved sin_contacto to Supabase: user={user_id} job={job_id}")
+        except Exception as e:
+            logging.error(f"Failed to save sin_contacto to Supabase: {e}")
+
     return {
         "success": False,
         "method": "manual",
@@ -743,6 +807,33 @@ async def import_excel_endpoint(
         "updated": updated,
         "jobs_processed": len(jobs_to_insert),
     }
+
+
+@app.post("/api/enrich-recruiter")
+async def enrich_recruiter_endpoint(payload: dict, authorization: Optional[str] = Header(None)):
+    """
+    Find a recruiter/HR contact for a company using Apollo.io.
+
+    Body: {"company_name": "string"}
+    Returns: {"name": ..., "email": ..., "title": ..., "company": ...} or {"error": "No recruiter found"}
+    """
+    expected = f"Bearer {AGGREGATE_SECRET}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company_name = (payload.get("company_name") or "").strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name requerido")
+
+    from services.apollo_service import search_recruiter
+    result = await search_recruiter(company_name)
+
+    if result:
+        logging.info(f"enrich-recruiter: found {result['email']} for '{company_name}'")
+        return result
+
+    logging.info(f"enrich-recruiter: no recruiter found for '{company_name}'")
+    return {"error": "No recruiter found"}
 
 
 @app.post("/generate-answers")
